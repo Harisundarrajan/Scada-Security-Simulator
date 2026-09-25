@@ -1,129 +1,119 @@
-# SCADA Security Simulator
+# SCADA/ICS Security Simulator
 
-This project is a simple simulation of a **SCADA/Industrial Control System environment** created to understand basic cybersecurity concepts in industrial systems.
+A simulation of an Industrial Control System (ICS) environment that demonstrates a real authentication weakness in industrial devices and validates the fix with automated tests. Built to understand how untrusted network traffic should be handled before it reaches control equipment.
 
-The project simulates communication between a **PLC/RTU and a client** and demonstrates how an authentication weakness can allow unauthorized commands. It then shows how adding authentication can help prevent unauthorized access.
+**Stack:** Python · Flask · TCP Sockets · Token Authentication · Pytest · Git
 
-## What this project does
+---
 
-* Simulates a basic PLC/RTU device.
-* Uses socket communication between the client and the simulated device.
-* Demonstrates an authentication weakness.
-* Shows how unauthorized commands can be accepted when proper authentication is not implemented.
-* Adds token-based authentication as a security improvement.
-* Tests the system before and after applying the security improvement.
-* Provides a simple Flask-based dashboard to view the system.
-* Records basic activity through logs.
+## The Problem
 
-## Technologies Used
+Industrial control devices frequently accept commands over plain TCP without verifying who sent them. An attacker on the same network can issue stop/start commands to critical equipment. This project reproduces that weakness in a safe, isolated simulator and then proves a patch closes it.
 
-* **Python**
-* **Flask**
-* **Socket Programming**
-* **HTML/CSS**
-* **Token-based Authentication**
+## What It Does
 
-## How It Works
+- Simulates a PLC/RTU field device listening on TCP port 5020
+- Provides a Flask-based HMI dashboard for viewing device state and firmware version
+- Reproduces an authentication-bypass vulnerability in firmware v1.0
+- Applies a token-based security patch (v1.1) that rejects unauthorized commands
+- Records every access attempt to an audit log for monitoring
+- Includes an attack client that simulates unauthorized command injection
 
-The project has two main stages.
+## Architecture
 
-### Before Security Improvement
+Three components communicate over TCP:
 
-The simulated device accepts commands without properly verifying the user.
+1. **PLC/RTU Simulator** (`scada_device.py`) — holds device state, enforces authentication once patched
+2. **HMI Dashboard** (`app.py`) — Flask web UI that queries the device and displays status plus a live security event log
+3. **Attack Client** (`attacker.py`) — sends both unauthorized and authorized payloads to demonstrate the difference in behavior
 
-```text
-Client → PLC/RTU → Command Accepted
-```
+Data flow before patching:
 
-This represents a basic authentication weakness.
+    Client -> PLC/RTU -> Command Accepted
 
-### After Security Improvement
+Data flow after patching:
 
-Token-based authentication is added to verify the request before accepting protected commands.
+    Client -> Auth Middleware -> PLC/RTU -> Command Accepted
 
-```text
-Client → Authentication → PLC/RTU → Command Accepted
-```
-
-If authentication fails, the command is rejected.
-
-## Testing
-
-The project includes testing to compare the system before and after the security improvement.
-
-The tests check whether:
-
-* An unauthorized request can access the device.
-* An authenticated request is accepted.
-* Invalid authentication is rejected.
-* The security improvement prevents unauthorized commands.
+Failed authentication returns `DENIED` and is written to the audit log.
 
 ## Project Structure
 
-```text
-SCADA-Security-Simulator/
-│
-├── app.py
-├── plc.py
-├── client.py
-├── requirements.txt
-├── README.md
-└── templates/
-```
+    Scada-Security-Simulator/
+    ├── scada_device.py           # Simulated PLC/RTU + authentication logic
+    ├── app.py                    # Flask HMI dashboard and audit logging
+    ├── attacker.py               # Attack simulation client
+    ├── tests/
+    │   └── test_scada_device.py  # Automated security regression tests
+    ├── requirements.txt
+    └── README.md
 
-The exact files may vary as the project is developed further.
+## Getting Started
 
-## Running the Project
+### Prerequisites
 
-### 1. Clone the repository
+- Python 3.8 or higher
+- pip
 
-```bash
-git clone https://github.com/Harisundarrajan/Scada-Security-Simulator.git
-cd Scada-Security-Simulator
-```
+### Installation
 
-### 2. Install the required packages
+    git clone https://github.com/Harisundarrajan/Scada-Security-Simulator.git
+    cd Scada-Security-Simulator
+    python -m pip install -r requirements.txt
 
-```bash
-pip install -r requirements.txt
-```
+### Run the Environment
 
-### 3. Run the application
+Start the simulated device first, then the dashboard.
 
-```bash
-python app.py
-```
+    Terminal 1:  python scada_device.py
+    Terminal 2:  python app.py
 
-Follow the instructions provided by the application to start the simulated SCADA environment.
+Open http://localhost:5000 to view the console.
 
-## What I Learned
+### Reproduce the Vulnerability
 
-Through this project, I learned the basics of:
+With the device running at firmware v1.0:
 
-* SCADA and industrial control systems
-* PLC/RTU communication
-* Socket programming
-* Authentication
-* Basic network security concepts
-* Identifying security weaknesses
-* Applying a security improvement
-* Testing security controls
-* Using Flask to create a simple monitoring interface
+    python attacker.py
 
-## Future Improvements
+The unauthorized STOP command succeeds, taking the device OFFLINE. Apply the security patch from the dashboard, then re-run the attack — the same command is now rejected.
 
-Some improvements I would like to add in the future are:
+## Testing
 
-* More realistic PLC/RTU communication
-* Better authentication and authorization
-* Network traffic monitoring
-* More security test cases
-* Improved logging
-* Detection of suspicious commands
-* Additional SCADA security scenarios
+Security controls are verified automatically rather than manually.
 
-## Done By:
+    python -m pytest tests/ -v
 
-**Hari S**
+All four tests pass:
 
-GitHub: https://github.com/Harisundarrajan
+| Test | What It Verifies |
+|------|------------------|
+| Unpatched device accepts any command | Documents the original vulnerability |
+| Patched device denies invalid token | Confirms the fix blocks unauthorized access |
+| Patched device accepts valid token | Ensures no regression for legitimate users |
+| Malformed packet handling | Service remains stable on malformed input |
+
+Test results observed locally: **4 passed**.
+
+## Design Decisions
+
+**Why raw sockets instead of HTTP?** Industrial protocols like Modbus operate at the transport layer. Modeling communication over TCP reflects real field-device behaviour more accurately than wrapping everything in REST.
+
+**Why keep the vulnerable path?** Deleting the vulnerability would remove the point of the exercise. Both states are reachable so the before/after comparison is testable and repeatable.
+
+**Why unit-test the device class directly?** Testing `SCADADevice.handle()` avoids needing a live socket during CI, keeping tests fast and deterministic.
+
+## What I Would Build Next
+
+- Rate limiting and lockout after repeated failed authentications
+- Detection logic that flags anomalous command sequences
+- Structured JSON logging suitable for ingestion into a SIEM or analytics pipeline
+- Support for additional industrial protocol message shapes
+
+## Relevance to Data Engineering
+
+Modern data platforms ingest millions of events per day from distributed, untrusted sources. This project exercises the same fundamentals: ingesting data over raw network protocols, validating inputs before they reach processing logic, and emitting structured logs for observability. Those are the same concerns that govern secure, reliable ingestion pipelines at scale.
+
+---
+
+Built as part of B.Tech Information Technology coursework at Excel Engineering College.
