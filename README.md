@@ -116,4 +116,3 @@ Modern data platforms ingest millions of events per day from distributed, untrus
 
 ---
 
-Built as part of B.Tech Information Technology coursework at Excel Engineering College.
